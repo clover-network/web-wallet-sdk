@@ -19,11 +19,7 @@
     "build": "rimraf dist/ && cross-env NODE_ENV=production parallel-webpack --no-stats",
     "build:types": "rimraf types/ && tsc --project tsconfig.types.json",
     "prepack": "npm run build && npm run build:types",
-    "lint:ts": "eslint --fix 'src/**/*.ts' 'index.ts'",
-    "test:e2e": "node ./test/e2e/puppeteer.js",
-    "test:e2e:headful": "node ./test/e2e/puppeteer.js false",
-    "test:build-embed": "mocha --exit ./test/compile/Web3Test.js",
-    "prepare": "husky install"
+    "lint:ts": "eslint --fix 'src/**/*.ts' 'index.ts'"
   },
   "peerDependencies": {
     "@babel/runtime": "7.x"

@@ -264,10 +264,6 @@ export interface LoginConfigItem {
   priority?: number;
 }
 
-export interface LoginConfig {
-  [verifier: string]: LoginConfigItem;
-}
-
 export interface PaymentParams {
   /**
    * Address to send the funds to
@@ -419,16 +415,6 @@ export interface CloverParams {
    * Defaults to false in prod and true in other environments
    */
   enableLogging?: boolean;
-  /**
-   * setting false, hides those verifiers from login modal
-   * @deprecated
-   * Please use loginConfig instead
-   */
-  enabledVerifiers?: VerifierStatus;
-  /**
-   * Array of login config items. Used to modify the default logins/ add new logins
-   */
-  loginConfig?: LoginConfig;
 
   useLocalStorage?: boolean;
 }

@@ -47,7 +47,6 @@ class CloverWebInjected {
   }
 
   async init({
-    loginConfig = {},
     network = {
       chainId: "0x3",
     },
@@ -100,7 +99,7 @@ class CloverWebInjected {
         initStream.write({
           name: "init_stream",
           data: {
-            loginConfig,
+            enableLogging,
           },
         });
         await this._setProvider(network);
