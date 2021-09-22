@@ -69,6 +69,7 @@ class CloverWebInjected {
     this.cloverIframe = htmlToElement<HTMLIFrameElement>(
       `<iframe
         id="cloverIframe"
+        allow="clipboard-write"
         class="cloverIframe"
         src="${cloverIframeUrl.href}"
         style="display: block; position: fixed; top: 0; right: 0; width: 100%;
