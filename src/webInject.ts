@@ -9,10 +9,21 @@ import ExtendedObjectMultiplex from "./ObjectMultiplex";
 import { handleStream, htmlToElement, runOnLoad } from "./pageUtils";
 import PopupHandler from "./PopupHandler";
 import sendSiteMetadata from "./siteMetadata";
+import CloverSolInpageProvider from "./sol-inpage-provider";
 import { setupMultiplex } from "./stream-utils";
 import { FEATURES_CONFIRM_WINDOW, getRamdonId } from "./utils";
 
-const UNSAFE_METHODS = ["eth_sendTransaction", "eth_signTypedData", "eth_signTypedData_v3", "eth_signTypedData_v4", "personal_sign"];
+const UNSAFE_METHODS = [
+  "eth_sendTransaction",
+  "eth_signTypedData",
+  "eth_signTypedData_v3",
+  "eth_signTypedData_v4",
+  "personal_sign",
+
+  // solana
+  "sol_signTransaction",
+  "sol_signAllTransactions",
+];
 
 class CloverWebInjected {
   cloverIframe: HTMLIFrameElement;
@@ -36,6 +47,8 @@ class CloverWebInjected {
   isLoggedIn: boolean;
 
   ethereum: CloverInpageProvider;
+
+  clover_solana: CloverSolInpageProvider;
 
   provider: CloverInpageProvider;
 
@@ -72,7 +85,7 @@ class CloverWebInjected {
         allow="clipboard-write"
         class="cloverIframe"
         src="${cloverIframeUrl.href}"
-        style="display: block; position: fixed; top: 0; right: 0; width: 100%;
+        style="display: none; position: fixed; top: 0; right: 0; width: 100%;
         height: 100%; border: none; border-radius: 0; z-index: ${this.zIndex}"
       ></iframe>`
     );
@@ -138,11 +151,17 @@ class CloverWebInjected {
     });
 
     const inpageProvider = new CloverInpageProvider(metamaskStream);
+    const solana = new CloverSolInpageProvider(inpageProvider);
+    this.clover_solana = solana;
     const detectAccountRequestPrototypeModifier = (m) => {
       const originalMethod = inpageProvider[m];
       inpageProvider[m] = function providerFunc(method, ...args) {
         if (method && method === "eth_requestAccounts") {
           return inpageProvider.enable();
+        }
+
+        if (method && method === "sol_requestAccount") {
+          return solana.enable();
         }
         return originalMethod.apply(this, [method, ...args]);
       };
@@ -186,6 +205,45 @@ class CloverWebInjected {
           } else {
             // set up listener for login
             this._showLoginPopup(true, resolve, reject);
+          }
+        });
+      });
+
+    this.clover_solana.enable = () =>
+      new Promise((resolve, reject) => {
+        // If user is already logged in, we assume they have given access to the website
+        inpageProvider.sendAsync({ jsonrpc: "2.0", id: getRamdonId(), method: "sol_requestAccount", params: [] }, (err, response) => {
+          const { result: res } = (response as { result: unknown }) || {};
+          if (err) {
+            setTimeout(() => {
+              reject(err);
+            }, 50);
+          } else if (Array.isArray(res) && res.length > 0) {
+            // If user is already rehydrated, resolve this
+            // else wait for something to be written to status stream
+            const handleLoginCb = () => {
+              if (this.requestedVerifier !== "" && this.currentVerifier !== this.requestedVerifier) {
+                const { requestedVerifier } = this;
+                // eslint-disable-next-line promise/no-promise-in-callback
+                this.logout()
+                  // eslint-disable-next-line promise/always-return
+                  .then((_) => {
+                    this.requestedVerifier = requestedVerifier;
+                    this._showLoginPopup(true, resolve, reject);
+                  })
+                  .catch((error) => reject(error));
+              } else {
+                resolve(res);
+              }
+            };
+            if (this.isLoggedIn) {
+              handleLoginCb();
+            } else {
+              this.isLoginCallback = handleLoginCb;
+            }
+          } else {
+            // set up listener for login
+            this._showLoginPopup(true, resolve, reject, "solana");
           }
         });
       });
@@ -242,6 +300,12 @@ class CloverWebInjected {
 
     if (this.provider.shouldSendMetadata) sendSiteMetadata(this.provider._rpcEngine);
     log.debug("injected provider");
+  }
+
+  solLogin({ verifier = "" } = {}): Promise<string[]> {
+    if (!this.initialized) throw new Error("Call init() first");
+    this.requestedVerifier = verifier;
+    return this.clover_solana.enable();
   }
 
   login({ verifier = "" } = {}): Promise<string[]> {
@@ -319,7 +383,7 @@ class CloverWebInjected {
   }
 
   /** @ignore */
-  _showLoginPopup(calledFromEmbed: boolean, resolve: (a: string[]) => void, reject: (err: Error) => void): void {
+  _showLoginPopup(calledFromEmbed: boolean, resolve: (a: string[]) => void, reject: (err: Error) => void, chainName = ""): void {
     const loginHandler = (data) => {
       const { err, selectedAddress } = data;
 
@@ -338,7 +402,7 @@ class CloverWebInjected {
     if (!this.requestedVerifier) {
       this.displayIframe();
       handleStream(oauthStream, "data", loginHandler);
-      oauthStream.write({ name: "oauth_modal", data: { calledFromEmbed } });
+      oauthStream.write({ name: "oauth_modal", data: { calledFromEmbed, chainName } });
     } else {
       handleStream(oauthStream, "data", loginHandler);
       const preopenInstanceId = getRamdonId();

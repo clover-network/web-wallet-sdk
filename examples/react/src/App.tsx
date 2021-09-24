@@ -2,6 +2,7 @@ import CloverWebInjected from '@clover-network/web-wallet-sdk';
 import React from 'react';
 import { recoverTypedMessage } from 'eth-sig-util';
 import { ethers } from 'ethers';
+import * as solanaWeb3 from "@solana/web3.js";
 import { getV3TypedData, getV4TypedData } from './data';
 import web3Obj from './helper';
 
@@ -13,14 +14,14 @@ const tokenAbi = require('human-standard-token-abi');
 class App extends React.Component {
   state = {
     publicAddress: '',
+    solAddress: '',
     chainId: '0x3',
   }
 
   componentDidMount(): void {
-    this.cloverLogin();
   }
 
-  cloverLogin = async () => {
+  cloverInit = async () => {
     const { chainId } = this.state
     await clvInject.init({
       network: {
@@ -28,6 +29,14 @@ class App extends React.Component {
       },
       enableLogging: true,
     });
+  }
+
+  onlylogin = async () => {
+    try {
+      await this.cloverInit()
+    } catch(e) {
+      console.log(e)
+    }
     await clvInject.login();
     web3Obj.setClvWeb3(clvInject.provider);
     clvInject.provider.on('accountsChanged', (accounts) => {
@@ -39,18 +48,18 @@ class App extends React.Component {
     const accounts = await web3Obj.web3.eth.getAccounts();
     console.log('accounts[0]', accounts[0]);
   }
-
-  onlylogin = async () => {
-    await clvInject.login();
-    web3Obj.setClvWeb3(clvInject.provider);
-    clvInject.provider.on('accountsChanged', (accounts) => {
-      console.log(accounts, 'accountsChanged');
-      this.setState({
-        publicAddress: (Array.isArray(accounts) && accounts[0]) || '',
-      });
+  solanaLogin = async () => {
+    try {
+      await this.cloverInit()
+    } catch(e) {
+      console.log(e)
+    }
+    await clvInject.solLogin();
+    const solAddress = await clvInject.clover_solana.getAccount();
+    console.log('solAddress:', solAddress);
+    this.setState({
+      solAddress: solAddress,
     });
-    const accounts = await web3Obj.web3.eth.getAccounts();
-    console.log('accounts[0]', accounts[0]);
   }
 
   sendEth = (): void => {
@@ -268,77 +277,164 @@ class App extends React.Component {
       .then(() => {
         this.setState({
           publicAddress: '',
+          solAddress: '',
         });
         return undefined;
       })
       .catch(console.error);
   }
 
+  getLoginButton = () => {
+    const { publicAddress, solAddress } = this.state;
+    return <div>
+      {
+        !publicAddress && !solAddress && <button onClick={this.onlylogin}>Login</button>
+      }
+      {
+        !publicAddress && !solAddress && <button onClick={this.solanaLogin}>Solana Login</button>
+      }
+      {
+        (publicAddress || solAddress) && <button onClick={this.logout}>Logout</button>
+      }
+    </div>
+  }
+
+  sendSolana = async () => {
+    const { solAddress } = this.state;
+    const connection = new solanaWeb3.Connection(
+      solanaWeb3.clusterApiUrl('mainnet-beta'),
+      'confirmed',
+    );
+    const fromPubkey = new solanaWeb3.PublicKey(solAddress);
+    const toPubkey = new solanaWeb3.PublicKey(solAddress);
+    const transaction = new solanaWeb3.Transaction().add(
+      solanaWeb3.SystemProgram.transfer({
+        fromPubkey: fromPubkey,
+        toPubkey: toPubkey,
+        lamports: solanaWeb3.LAMPORTS_PER_SOL * 0,
+      }),
+    );
+
+    const block = await connection.getRecentBlockhash('max');
+    transaction.recentBlockhash = block.blockhash;
+    transaction.setSigners(fromPubkey);
+
+    const sss = await clvInject.clover_solana.signTransaction(transaction);
+    const rawTransaction = sss.serialize();
+    const a = await connection.sendRawTransaction(rawTransaction, {
+      skipPreflight: false,
+      preflightCommitment: 'single',
+    });
+
+    this.console('transaction hash:' + a);
+  }
+
+  sendSolanaAll = async () => {
+    const { solAddress } = this.state;
+    const connection = new solanaWeb3.Connection(
+      solanaWeb3.clusterApiUrl('mainnet-beta'),
+      'confirmed',
+    );
+    const fromPubkey = new solanaWeb3.PublicKey(solAddress);
+    const toPubkey = new solanaWeb3.PublicKey(solAddress);
+    const transaction = new solanaWeb3.Transaction().add(
+      solanaWeb3.SystemProgram.transfer({
+        fromPubkey: fromPubkey,
+        toPubkey: toPubkey,
+        lamports: solanaWeb3.LAMPORTS_PER_SOL * 0,
+      }),
+    );
+
+    const block = await connection.getRecentBlockhash('max');
+    transaction.recentBlockhash = block.blockhash;
+    transaction.setSigners(fromPubkey);
+
+    const sss = await clvInject.clover_solana.signAllTransactions([transaction]);
+    const rawTransaction = sss[0].serialize();
+    const a = await connection.sendRawTransaction(rawTransaction, {
+      skipPreflight: false,
+      preflightCommitment: 'single',
+    });
+
+    this.console('transaction hash:' + a);
+  }
+
   render() {
-    const { publicAddress } = this.state;
+    const { publicAddress, solAddress } = this.state;
     return (
       <div className="App">
-
         <div>
           <h3>Login With Clover Web Wallet</h3>
           <section>
             {
-              !publicAddress
-                ? (
-                  <div>
-                    <button onClick={this.onlylogin}>Login</button>
-                  </div>
-                )
-                : <button onClick={this.logout}>Logout</button>
+              this.getLoginButton()
             }
-
           </section>
           {
-              publicAddress
-          && (
-          <section
-            style={{
-              fontSize: '12px',
-            }}
-          >
-            <section>
-              <div>
-                Public Address:
-                <i>{publicAddress.toString()}</i>
-              </div>
-            </section>
+            publicAddress && (
+              <section
+                style={{
+                  fontSize: '12px',
+                }}
+              >
+                <section>
+                  <div>
+                    Public Address:
+                    <i>{publicAddress.toString()}</i>
+                  </div>
+                </section>
 
-            <section style={{ marginTop: '20px' }}>
-              <h4>Blockchain Apis</h4>
-              <section>
-                <h5>Signing</h5>
-                <button onClick={this.signPersonalMsg}>personal_sign</button>
-                <button onClick={this.signMessage}>sign_eth</button>
-                <button onClick={this.signTypedDataV1}>sign typed data v1</button>
-                <button onClick={this.signTypedDataV3}>sign typed data v3</button>
-                <button onClick={this.signTypedDataV4}>sign typed data v4</button>
+                <section style={{ marginTop: '20px' }}>
+                  <h4>Blockchain Apis</h4>
+                  <section>
+                    <h5>Signing</h5>
+                    <button onClick={this.signPersonalMsg}>personal_sign</button>
+                    <button onClick={this.signMessage}>sign_eth</button>
+                    <button onClick={this.signTypedDataV1}>sign typed data v1</button>
+                    <button onClick={this.signTypedDataV3}>sign typed data v3</button>
+                    <button onClick={this.signTypedDataV4}>sign typed data v4</button>
+                  </section>
+                  <section>
+                    <h5>Transactions</h5>
+                    <button onClick={this.sendEth}>Send Eth</button>
+                    <button onClick={this.sendClvEthereum}>Send CLV Ethereum</button>
+                    <button onClick={this.approveClvEthereum}>Approve CLV Ethereum</button>
+                  </section>
+                </section>
               </section>
-              <section>
-                <h5>Transactions</h5>
-                <button onClick={this.sendEth}>Send Eth</button>
-                <button onClick={this.sendClvEthereum}>Send CLV Ethereum</button>
-                <button onClick={this.approveClvEthereum}>Approve CLV Ethereum</button>
-              </section>
-            </section>
-          </section>
-          )
+            )
           }
-
+          {
+            solAddress && (
+              <section
+                style={{
+                  fontSize: '12px',
+                }}
+              >
+                <section>
+                  <div>
+                    Solana Address:
+                    <i>{solAddress.toString()}</i>
+                  </div>
+                </section>
+                <section style={{ marginTop: '20px' }}>
+                  <h4>Solana Signing</h4>
+                  <section>
+                    <button onClick={this.sendSolana}>sign and send transaction</button>
+                    <button onClick={this.sendSolanaAll}>sign all transactions and send the first</button>
+                  </section>
+                </section>
+              </section>
+            )
+          }
         </div>
         {
-          publicAddress
-
-        && (
-        <div id="console" style={{ whiteSpace: 'pre-line' }}>
-          <p style={{ whiteSpace: 'pre-line' }} />
-        </div>
-        )
-  }
+          (publicAddress || solAddress) && (
+            <div id="console" style={{ whiteSpace: 'pre-line' }}>
+              <p style={{ whiteSpace: 'pre-line' }} />
+            </div>
+          )
+        }
       </div>
     );
   }
