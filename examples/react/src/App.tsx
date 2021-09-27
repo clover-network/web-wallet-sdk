@@ -211,7 +211,7 @@ class App extends React.Component {
       const value = Math.floor(parseFloat('0.01') * 10 ** parseFloat('18')).toString();
       if (Number(balance) < Number(value)) {
         // eslint-disable-next-line no-alert
-        window.alert('You do not have enough dai tokens for transfer');
+        window.alert('You do not have enough CLV tokens for transfer');
         return;
       }
       instance.methods.transfer(publicAddress, value).send(
@@ -398,7 +398,7 @@ class App extends React.Component {
                     <h5>Transactions</h5>
                     <button onClick={this.sendEth}>Send Eth</button>
                     <button onClick={this.sendClvEthereum}>Send CLV Ethereum</button>
-                    <button onClick={this.approveClvEthereum}>Approve CLV Ethereum</button>
+                    {/* <button onClick={this.approveClvEthereum}>Approve CLV Ethereum</button> */}
                   </section>
                 </section>
               </section>
