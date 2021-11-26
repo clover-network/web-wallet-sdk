@@ -5,20 +5,33 @@ import { ethers } from 'ethers';
 import * as solanaWeb3 from "@solana/web3.js";
 import { getV3TypedData, getV4TypedData } from './data';
 import web3Obj from './helper';
+import { web3Enable, web3Accounts, web3FromAddress } from "@polkadot/extension-dapp";
+import {
+  u8aToHex,
+  u8aWrapBytes,
+} from "@polkadot/util";
+import { initApi, api } from './apiUtils'
 
 // import CloverWebInjected from './clover-web-inject/index';
 
 const clvInject = new CloverWebInjected({ zIndex: 99999, devEnv: true });
 const tokenAbi = require('human-standard-token-abi');
+let currentInjected;
 
 class App extends React.Component {
   state = {
     publicAddress: '',
     solAddress: '',
+    polkadotAddress: '',
     chainId: '0x3',
   }
 
-  componentDidMount(): void {
+  async componentDidMount() {
+    await this.initPolkaApi()
+  }
+
+  initPolkaApi = async () => {
+    await initApi()
   }
 
   cloverInit = async () => {
@@ -59,6 +72,29 @@ class App extends React.Component {
     console.log('solAddress:', solAddress);
     this.setState({
       solAddress: solAddress,
+    });
+  }
+
+  polkadotLogin = async () => {
+    try {
+      await this.cloverInit()
+    } catch(e) {
+      console.log(e)
+    }
+    await clvInject.polkadotLogin();
+    const injected: any = await web3Enable('clv');
+
+    currentInjected = injected[0]
+    if (!injected.length) {
+      return {
+        message: "Not found wallet",
+        status: "error",
+      };
+    }
+    const polkadotAddress = await web3Accounts({ ss58Format: 42 });
+    console.log('polkadotAddress:', polkadotAddress);
+    this.setState({
+      polkadotAddress: polkadotAddress[0].address,
     });
   }
 
@@ -278,6 +314,7 @@ class App extends React.Component {
         this.setState({
           publicAddress: '',
           solAddress: '',
+          polkadotAddress: '',
         });
         return undefined;
       })
@@ -285,16 +322,19 @@ class App extends React.Component {
   }
 
   getLoginButton = () => {
-    const { publicAddress, solAddress } = this.state;
+    const { publicAddress, solAddress, polkadotAddress } = this.state;
     return <div>
       {
-        !publicAddress && !solAddress && <button onClick={this.onlylogin}>Login</button>
+        !publicAddress && !solAddress && !polkadotAddress  && <button onClick={this.onlylogin}>Login</button>
       }
       {
-        !publicAddress && !solAddress && <button onClick={this.solanaLogin}>Solana Login</button>
+        !publicAddress && !solAddress && !polkadotAddress  && <button onClick={this.solanaLogin}>Solana Login</button>
       }
       {
-        (publicAddress || solAddress) && <button onClick={this.logout}>Logout</button>
+        !publicAddress && !solAddress && !polkadotAddress && <button onClick={this.polkadotLogin}>Polkadot Login</button>
+      }
+      {
+        (publicAddress || solAddress || polkadotAddress) && <button onClick={this.logout}>Logout</button>
       }
     </div>
   }
@@ -359,8 +399,43 @@ class App extends React.Component {
     this.console('transaction hash:' + a);
   }
 
+  polkadotSignMessage = async () => {
+    const { polkadotAddress } = this.state;
+    const wrapped = u8aWrapBytes(polkadotAddress.toLowerCase());
+    const ret = await currentInjected.signer.signRaw({
+      data: u8aToHex(wrapped),
+      address: polkadotAddress,
+      type: "bytes",
+    });
+    // const ret = await currentInjected.sign.signMessage({
+    //   data: u8aToHex(wrapped),
+    //   address: polkadotAddress,
+    //   type: "bytes",
+    // });
+    this.console('Polkadot signature:' + JSON.stringify(ret));
+  }
+
+  polkadotSignTransaction = async () => {
+    const { polkadotAddress } = this.state;
+    const currentClvAccount = polkadotAddress
+    const injected = await web3FromAddress(currentClvAccount)
+    api.getApi().setSigner(injected.signer)
+    const unsub = await api.getApi().tx.balances
+      .transfer(currentClvAccount, 0)
+      .signAndSend(currentClvAccount, (result) => {
+        this.console('Current status is:' + result.status);
+
+        if (result.status.isInBlock) {
+          this.console('Transaction included at blockHash:' + result.status.asInBlock);
+        } else if (result.status.isFinalized) {
+          this.console('Transaction finalized at blockHash:' + result.status.asFinalized);
+          unsub();
+        }
+      })
+  }
+
   render() {
-    const { publicAddress, solAddress } = this.state;
+    const { publicAddress, solAddress, polkadotAddress } = this.state;
     return (
       <div className="App">
         <div>
@@ -427,9 +502,32 @@ class App extends React.Component {
               </section>
             )
           }
+          {
+            polkadotAddress && (
+              <section
+                style={{
+                  fontSize: '12px',
+                }}
+              >
+                <section>
+                  <div>
+                    polkadot Address:
+                    <i>{polkadotAddress.toString()}</i>
+                  </div>
+                </section>
+                <section style={{ marginTop: '20px' }}>
+                  <h4>polkadot Signing</h4>
+                  <section>
+                    <button onClick={this.polkadotSignMessage}>sign Message</button>
+                    <button onClick={this.polkadotSignTransaction}>sign transaction</button>
+                  </section>
+                </section>
+              </section>
+            )
+          }
         </div>
         {
-          (publicAddress || solAddress) && (
+          (publicAddress || solAddress || polkadotAddress) && (
             <div id="console" style={{ whiteSpace: 'pre-line' }}>
               <p style={{ whiteSpace: 'pre-line' }} />
             </div>

@@ -25,6 +25,10 @@
     "@babel/runtime": "7.x"
   },
   "dependencies": {
+    "@polkadot/extension-inject": "0.37.2",
+    "@polkadot/extension-dapp": "0.34.1",
+    "@polkadot/util": "^7.9.2",
+    "@polkadot/api": "6.8.1",
     "@chaitanyapotti/random-id": "^1.0.3",
     "@metamask/obs-store": "^6.0.2",
     "@metamask/post-message-stream": "^4.0.0",
@@ -60,7 +64,7 @@
     "@typescript-eslint/parser": "^4.28.2",
     "babel-loader": "^8.2.2",
     "cross-env": "^7.0.3",
-    "eslint": "^7.30.0",
+    "eslint": "^8.3.0",
     "eslint-config-airbnb-base": "^14.2.1",
     "eslint-config-airbnb-typescript": "^12.3.1",
     "eslint-config-prettier": "^8.3.0",

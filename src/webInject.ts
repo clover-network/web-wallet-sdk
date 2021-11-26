@@ -1,7 +1,9 @@
 import { WindowPostMessageStream } from "@metamask/post-message-stream";
+import { injectExtension } from "@polkadot/extension-inject";
 import { JsonRpcRequest } from "json-rpc-engine";
 
 import { DEV_URL, PROD_URL, STORAGE_KEY } from "./constants";
+import CloverDotInpageProvider from "./dot-inpage-provider";
 import CloverInpageProvider from "./inpage-provider";
 import { CloverParams, UnvalidatedJsonRpcRequest } from "./interfaces";
 import log from "./loglevel";
@@ -49,6 +51,8 @@ class CloverWebInjected {
   ethereum: CloverInpageProvider;
 
   clover_solana: CloverSolInpageProvider;
+
+  clover_polkadot: CloverDotInpageProvider;
 
   provider: CloverInpageProvider;
 
@@ -152,7 +156,9 @@ class CloverWebInjected {
 
     const inpageProvider = new CloverInpageProvider(metamaskStream);
     const solana = new CloverSolInpageProvider(inpageProvider);
+    const polkadot = new CloverDotInpageProvider(inpageProvider);
     this.clover_solana = solana;
+    this.clover_polkadot = polkadot;
     const detectAccountRequestPrototypeModifier = (m) => {
       const originalMethod = inpageProvider[m];
       inpageProvider[m] = function providerFunc(method, ...args) {
@@ -248,6 +254,114 @@ class CloverWebInjected {
         });
       });
 
+    const polkadotGetAccounts = async () =>
+      new Promise((resolve, reject) => {
+        inpageProvider.sendAsync({ jsonrpc: "2.0", id: getRamdonId(), method: "dot_requestAccount", params: [] }, (err, response) => {
+          const { result: res } = (response as { result: unknown }) || {};
+          if (err) {
+            setTimeout(() => {
+              reject(err);
+            }, 50);
+          } else {
+            resolve(res);
+          }
+        });
+      });
+
+    const polkadotSignMessage = async (payload) =>
+      // eslint-disable-next-line consistent-return
+      new Promise((resolve, reject) => {
+        if (Array.isArray(payload)) {
+          return Promise.reject(new Error("Invalid parameter. Array is not allowed"));
+        }
+        inpageProvider.sendAsync({ jsonrpc: "2.0", id: getRamdonId(), method: "dot_signMessage", params: [payload] }, (err, response) => {
+          const { result: res } = (response as { result: any }) || {};
+          if (err) {
+            reject(err);
+          } else {
+            resolve(res);
+          }
+        });
+      });
+
+    const polkadotSignTransaction = async (payload) =>
+      // eslint-disable-next-line consistent-return
+      new Promise((resolve, reject) => {
+        if (Array.isArray(payload)) {
+          return Promise.reject(new Error("Invalid parameter. Array is not allowed"));
+        }
+        inpageProvider.sendAsync({ jsonrpc: "2.0", id: getRamdonId(), method: "dot_signTransaction", params: [payload] }, (err, response) => {
+          const { result: res } = (response as { result: any }) || {};
+          if (err) {
+            reject(err);
+          } else {
+            resolve(res);
+          }
+        });
+      });
+
+    this.clover_polkadot.enable = () =>
+      new Promise((resolve, reject) => {
+        // If user is already logged in, we assume they have given access to the website
+        inpageProvider.sendAsync({ jsonrpc: "2.0", id: getRamdonId(), method: "dot_enable", params: [] }, (err) => {
+          if (err) {
+            setTimeout(() => {
+              reject(err);
+            }, 50);
+          } else {
+            const polkadotObj = {
+              accounts: {
+                get: async () => {
+                  const returnRes: any = await polkadotGetAccounts();
+                  return returnRes;
+                },
+              },
+              name: "Clover",
+              signer: {
+                signPayload: async (payload) => {
+                  const returnRes: any = await polkadotSignTransaction(payload);
+                  return returnRes;
+                },
+                signRaw: async (payload) => {
+                  const returnRes: any = await polkadotSignMessage(payload);
+                  return returnRes;
+                },
+              },
+              sign: {
+                signMessage: async (payload) => {
+                  // eslint-disable-next-line @typescript-eslint/no-shadow
+                  const res: any = await polkadotSignMessage(payload);
+                  return res;
+                },
+              },
+              version: "1.0.4",
+            };
+
+            const handleLoginCb = () => {
+              if (this.requestedVerifier !== "" && this.currentVerifier !== this.requestedVerifier) {
+                const { requestedVerifier } = this;
+                // eslint-disable-next-line promise/no-promise-in-callback
+                this.logout()
+                  // eslint-disable-next-line promise/always-return
+                  .then((_) => {
+                    this.requestedVerifier = requestedVerifier;
+                    this._showLoginPopup(true, resolve, reject);
+                  })
+                  .catch((error) => reject(error));
+              } else {
+                resolve(polkadotObj);
+              }
+            };
+            if (this.isLoggedIn) {
+              handleLoginCb();
+            } else {
+              this.isLoginCallback = handleLoginCb;
+            }
+            this._showLoginPopup(true, resolve, reject, "polkadot", polkadotObj);
+          }
+        });
+      });
+
     inpageProvider.tryPreopenHandle = (payload: UnvalidatedJsonRpcRequest | UnvalidatedJsonRpcRequest[], cb: (...args: any[]) => void) => {
       const _payload = payload;
       if (!Array.isArray(_payload) && UNSAFE_METHODS.includes(_payload.method)) {
@@ -306,6 +420,15 @@ class CloverWebInjected {
     if (!this.initialized) throw new Error("Call init() first");
     this.requestedVerifier = verifier;
     return this.clover_solana.enable();
+  }
+
+  polkadotLogin({ verifier = "" } = {}) {
+    if (!this.initialized) throw new Error("Call init() first");
+    this.requestedVerifier = verifier;
+    injectExtension(this.clover_polkadot.enable, {
+      name: "clover",
+      version: "1.0.4",
+    });
   }
 
   login({ verifier = "" } = {}): Promise<string[]> {
@@ -383,7 +506,13 @@ class CloverWebInjected {
   }
 
   /** @ignore */
-  _showLoginPopup(calledFromEmbed: boolean, resolve: (a: string[]) => void, reject: (err: Error) => void, chainName = ""): void {
+  _showLoginPopup(
+    calledFromEmbed: boolean,
+    resolve: (a: string[]) => void,
+    reject: (err: Error) => void,
+    chainName = "",
+    polkadotObj = undefined
+  ): void {
     const loginHandler = (data) => {
       const { err, selectedAddress } = data;
 
@@ -394,7 +523,12 @@ class CloverWebInjected {
       // returns an array (cause accounts expects it)
       else if (resolve) {
         log.info("selectedAddress:", selectedAddress);
-        resolve([selectedAddress]);
+        if (polkadotObj) {
+          log.info("selectedAddress:", polkadotObj);
+          resolve(polkadotObj);
+        } else {
+          resolve([selectedAddress]);
+        }
       }
       this.displayIframe(false);
     };
