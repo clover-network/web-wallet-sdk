@@ -1,6 +1,6 @@
 {
   "name": "@clover-network/web-wallet-sdk",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "inpage provider for Clover",
   "main": "dist/clover.cjs.js",
   "unpkg": "dist/clover.umd.min.js",
